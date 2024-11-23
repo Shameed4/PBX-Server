@@ -27,7 +27,7 @@ STD := -std=gnu11
 TEST_LIB := -lcriterion
 LIBS := $(LIB) -lpthread
 LIBS_DB := $(LIB_DB) -lpthread
-EXCLUDES := excludes.h
+EXCLUDES :=
 
 CFLAGS += $(STD) -DTEST_CONFIG_C
 
