@@ -1,9 +1,11 @@
 #include <stdlib.h>
 #include <unistd.h>
 
+#include "csapp.h"
 #include "pbx.h"
 #include "server.h"
 #include "debug.h"
+#include "main_helper.h"
 
 static void terminate(int status);
 
@@ -27,8 +29,50 @@ int main(int argc, char* argv[]){
     // a SIGHUP handler, so that receipt of SIGHUP will perform a clean
     // shutdown of the server.
 
-    fprintf(stderr, "You have to finish implementing main() "
-	    "before the PBX server will function.\n");
+    // if (argc < 3) {
+    //     fprintf(stderr, )
+    // }
+    
+    char *port = NULL;
+    for (int i = 1; i < argc - 1; i++) {
+        if (!strcmp(argv[i], "-p")) {
+            i++;
+            port = argv[i];
+        }
+    }
+
+    if (port == NULL) {
+        fprintf(stderr, "Usage: bin/pbx -p <port>\n");
+        terminate(EXIT_FAILURE);
+    }
+
+    struct sigaction sa;
+    sa.sa_handler = terminate;
+    sa.sa_flags = 0;
+    sigemptyset(&sa.sa_mask);
+
+    if (sigaction(SIGHUP, &sa, NULL) ==  -1) {
+        fprintf(stderr, "Failed to add sigaction");
+        exit(1);
+    }
+
+    // adapted from Lee-LEC21-Concurrency.pdf Slide 41
+    int listenfd, *connfdp;
+    socklen_t clientlen;
+    struct sockaddr_storage clientaddr;
+    pthread_t tid;
+
+    listenfd = Open_listenfd(port);
+
+    while (1) {
+        clientlen = sizeof(struct sockaddr_storage);
+        connfdp = Malloc(sizeof(int));
+        *connfdp = Accept(listenfd, (SA *) &clientaddr, &clientlen);
+        debug("Main connfdp: %d", *connfdp);
+        debug("Accepted connection");
+        pthread_create(&tid, NULL, pbx_client_service, connfdp);
+    }
+    
 
     terminate(EXIT_FAILURE);
 }
