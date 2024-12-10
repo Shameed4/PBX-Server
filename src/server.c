@@ -24,8 +24,9 @@ void *pbx_client_service(void *arg) {
         exit(1);
     }
     int connfdp = *(int*)(arg);
+    TU *tu = tu_init(connfdp);
     free(arg);
-    debug("Thread connfdp: %d", connfdp);
+    pbx_register(pbx, tu, connfdp);
     while (1) {
         char *buffer = malloc(BUFFER_BLOCK_LEN + 1);
         if (buffer == NULL) {
@@ -65,22 +66,33 @@ void *pbx_client_service(void *arg) {
         buffer[break_index] = '\0';
 
         if (!strcmp(buffer, "pickup")) {
-            debug("Picking up");
+            tu_pickup(tu);
         }
         else if (!strcmp(buffer, "hangup")) {
-            debug("Hanging up");
+            tu_hangup(tu);
         }
         else if (!strncmp(buffer, "dial ", 5)) {
-            debug("Dialing");
+            char *end_ptr = NULL;
+            int ext = strtol(buffer + 5, &end_ptr, 10);
+            if (*end_ptr == '\0') {
+                pbx_dial(pbx, tu, ext);
+            }
+            else {
+                debug("Invalid dial");
+            }
         }
         else if (!strncmp(buffer, "chat ", 5)) {
-            debug("Chatting");
+            tu_chat(tu, buffer + 5);
         }
-        else {
+        else if (len > 0) {
             debug("Invalid command");
         }
         free(buffer);
+        if (curr_read_len <= 0) {
+            break;
+        }
     }
+    debug("Returning null");
     return NULL;
 }
 // #endif

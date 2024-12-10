@@ -9,6 +9,11 @@
 
 static void terminate(int status);
 
+static void terminate_helper() {
+    debug("Running terminate_helper");
+    terminate(EXIT_SUCCESS);
+}
+
 /*
  * "PBX" telephone exchange simulation.
  *
@@ -47,7 +52,7 @@ int main(int argc, char* argv[]){
     }
 
     struct sigaction sa;
-    sa.sa_handler = terminate;
+    sa.sa_handler = terminate_helper;
     sa.sa_flags = 0;
     sigemptyset(&sa.sa_mask);
 
@@ -65,16 +70,15 @@ int main(int argc, char* argv[]){
     listenfd = Open_listenfd(port);
 
     while (1) {
+        debug("Looking for connection");
         clientlen = sizeof(struct sockaddr_storage);
         connfdp = Malloc(sizeof(int));
         *connfdp = Accept(listenfd, (SA *) &clientaddr, &clientlen);
-        debug("Main connfdp: %d", *connfdp);
-        debug("Accepted connection");
         pthread_create(&tid, NULL, pbx_client_service, connfdp);
     }
     
 
-    terminate(EXIT_FAILURE);
+    terminate(EXIT_SUCCESS);
 }
 
 /*

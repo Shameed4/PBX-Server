@@ -2,9 +2,30 @@
  * TU: simulates a "telephone unit", which interfaces a client with the PBX.
  */
 #include <stdlib.h>
+#include <pthread.h>
+#include <csapp.h>
+#include <stdio.h>
 
 #include "pbx.h"
 #include "debug.h"
+
+typedef struct tu {
+    int fd;
+    int ext;
+    TU_STATE state;
+    struct tu *peer;
+    sem_t mutex;
+    int ref_count;
+} TU;
+
+// assumes that there is a lock 
+void print_state(TU *tu) {
+    if (tu->state == TU_ON_HOOK) {
+        dprintf(tu->fd, "ON HOOK %d\r\n", tu->ext);
+        return;
+    }
+    dprintf(tu->fd, "%s\r\n", tu_state_names[tu->ext]);
+}
 
 /*
  * Initialize a TU
@@ -13,12 +34,23 @@
  * @return  The TU, newly initialized and in the TU_ON_HOOK state, if initialization
  * was successful, otherwise NULL.
  */
-#if 0
+// #if 0
 TU *tu_init(int fd) {
     // TO BE IMPLEMENTED
-    abort();
+    TU *tu = calloc(1, sizeof(TU));
+    if (tu == NULL) {
+        return NULL;
+    }
+    Sem_init(&tu->mutex, 0, 1);
+    return tu;
 }
-#endif
+// #endif
+
+// tu_ref, but it assumes there is already a lock on tu
+void tu_ref_nl(TU *tu, char *reason) {
+    debug("Referencing TU because %s", reason);
+    tu->ref_count += 1;
+}
 
 /*
  * Increment the reference count on a TU.
@@ -27,12 +59,14 @@ TU *tu_init(int fd) {
  * @param reason  A string describing the reason why the count is being incremented
  * (for debugging purposes).
  */
-#if 0
+// #if 0
 void tu_ref(TU *tu, char *reason) {
     // TO BE IMPLEMENTED
-    abort();
+    P(&tu->mutex);
+    tu_ref_nl(tu, reason);
+    V(&tu->mutex);
 }
-#endif
+// #endif
 
 /*
  * Decrement the reference count on a TU, freeing it if the count becomes 0.
@@ -41,12 +75,20 @@ void tu_ref(TU *tu, char *reason) {
  * @param reason  A string describing the reason why the count is being decremented
  * (for debugging purposes).
  */
-#if 0
+// #if 0
 void tu_unref(TU *tu, char *reason) {
     // TO BE IMPLEMENTED
-    abort();
+    P(&tu->mutex);
+    tu->ref_count -= 1;
+    if (tu->ref_count == 0) {
+        V(&tu->mutex);
+        free(tu);
+    }
+    else {
+        V(&tu->mutex);
+    }
 }
-#endif
+// #endif
 
 /*
  * Get the file descriptor for the network connection underlying a TU.
@@ -57,12 +99,15 @@ void tu_unref(TU *tu, char *reason) {
  * @param tu
  * @return the underlying file descriptor, if any, otherwise -1.
  */
-#if 0
+// #if 0
 int tu_fileno(TU *tu) {
     // TO BE IMPLEMENTED
-    abort();
+    P(&tu->mutex);
+    int fd = tu->fd;
+    V(&tu->mutex);
+    return fd;
 }
-#endif
+// #endif
 
 /*
  * Get the extension number for a TU.
@@ -74,12 +119,15 @@ int tu_fileno(TU *tu) {
  * @param tu
  * @return the extension number, if any, otherwise -1.
  */
-#if 0
+// #if 0
 int tu_extension(TU *tu) {
     // TO BE IMPLEMENTED
-    abort();
+    P(&tu->mutex);
+    int ext = tu->ext;
+    V(&tu->mutex);
+    return ext;
 }
-#endif
+// #endif
 
 /*
  * Set the extension number for a TU.
@@ -88,12 +136,61 @@ int tu_extension(TU *tu) {
  *
  * @param tu  The TU whose extension is being set.
  */
-#if 0
+// #if 0
 int tu_set_extension(TU *tu, int ext) {
     // TO BE IMPLEMENTED
-    abort();
+    P(&tu->mutex);
+    tu->ext = ext;
+    V(&tu->mutex);
+    return 0;
 }
-#endif
+// #endif
+
+void lock(TU *tu, TU *target) {
+    P(&tu->mutex);
+    int tu_fd = tu->fd;
+    V(&tu->mutex);
+
+    P(&target->mutex);
+    int target_fd = target->fd;
+    V(&target->mutex);
+    
+    if (tu_fd == target_fd) {
+        debug("WHAT - tu == target");
+        exit(EXIT_FAILURE);
+    }
+    else if (tu_fd < target_fd) {
+        P(&tu->mutex);
+        P(&target->mutex);
+    }
+    else if (target_fd < tu_fd) {
+        P(&target->mutex);
+        P(&tu->mutex);
+    }
+}
+
+void unlock(TU *tu, TU *target) {
+    P(&tu->mutex);
+    int tu_fd = tu->fd;
+    V(&tu->mutex);
+
+    P(&target->mutex);
+    int target_fd = target->fd;
+    V(&target->mutex);
+    
+    if (tu_fd == target_fd) {
+        debug("WHAT - tu == target");
+        exit(EXIT_FAILURE);
+    }
+    else if (target_fd < tu_fd) {
+        V(&tu->mutex);
+        V(&target->mutex);
+    }
+    else if (tu_fd < target_fd) {
+        V(&target->mutex);
+        V(&tu->mutex);
+    }
+}
 
 /*
  * Initiate a call from a specified originating TU to a specified target TU.
@@ -125,12 +222,47 @@ int tu_set_extension(TU *tu, int ext) {
  * @return 0 if successful, -1 if any error occurs that results in the originating
  * TU transitioning to the TU_ERROR state. 
  */
-#if 0
+// #if 0
 int tu_dial(TU *tu, TU *target) {
-    // TO BE IMPLEMENTED
-    abort();
+    P(&tu->mutex);
+    if (tu->state != TU_DIAL_TONE) {
+        V(&tu->mutex);
+        return 0;
+    }
+    if (target == NULL) {
+        debug("Updating to error state");
+        tu->state = TU_ERROR;
+        V(&tu->mutex);
+        return -1;
+    }
+    V(&tu->mutex);
+    
+    P(&target->mutex);
+    if (target->state != TU_ON_HOOK) {
+        V(&target->mutex);
+        
+        P(&tu->mutex);
+        tu->state = TU_BUSY_SIGNAL;
+        print_state(tu);
+        V(&tu->mutex);
+        return 0;
+    }
+    else
+        V(&target->mutex);
+    
+    lock(tu, target);
+
+    tu->state = TU_RING_BACK;
+    tu->peer = target;
+    tu_ref_nl(tu, "Is the caller");
+    target->state = TU_RINGING;
+    target->peer = tu;
+    tu_ref_nl(target, "Is being called");
+
+    unlock(tu, target);
+    return 0;
 }
-#endif
+// #endif
 
 /*
  * Take a TU receiver off-hook (i.e. pick up the handset).
@@ -149,12 +281,35 @@ int tu_dial(TU *tu, TU *target) {
  * @return 0 if successful, -1 if any error occurs that results in the originating
  * TU transitioning to the TU_ERROR state. 
  */
-#if 0
+// #if 0
 int tu_pickup(TU *tu) {
     // TO BE IMPLEMENTED
-    abort();
+    P(&tu->mutex);
+    switch (tu->state) {
+        case TU_ON_HOOK:
+        tu->state = TU_DIAL_TONE;
+        print_state(tu);
+        V(&tu->mutex);
+        break;
+
+        case TU_RINGING:
+        V(&tu->mutex);
+        TU *target = tu->peer;
+        lock(tu, target);
+
+        tu->state = TU_CONNECTED;
+        target->state = TU_CONNECTED;
+
+        unlock(tu, target);
+
+        break;
+
+        default:
+        V(&tu->mutex);
+    }
+    return 0;
 }
-#endif
+// #endif
 
 /*
  * Hang up a TU (i.e. replace the handset on the switchhook).
@@ -177,12 +332,51 @@ int tu_pickup(TU *tu) {
  * @return 0 if successful, -1 if any error occurs that results in the originating
  * TU transitioning to the TU_ERROR state. 
  */
-#if 0
+// #if 0
 int tu_hangup(TU *tu) {
     // TO BE IMPLEMENTED
-    abort();
+    P(&tu->mutex);
+    switch (tu->state) {
+        case TU_CONNECTED:
+        case TU_RINGING:
+        case TU_RING_BACK:
+        TU *target = tu->peer;
+        V(&tu->mutex);
+        lock(tu, target);
+        
+        tu->state = TU_ON_HOOK;
+        tu->peer = NULL;
+        if (tu->state == TU_RING_BACK)
+            target->state = TU_ON_HOOK;
+        else
+            target->state = TU_DIAL_TONE;
+        target->peer = NULL;
+
+        unlock(tu, target);
+
+        tu_unref(tu, "Hung up");
+        tu_unref(target, "Got hung up on");
+        break;
+
+        case TU_RING_BACK:
+        TU *target = tu->peer;
+        V(&tu->mutex);
+        lock(tu, target);
+        
+        tu->state = TU_ON_HOOK;
+        tu->peer = NULL;
+        target->state = TU_ON_HOOK;
+        target->peer = NULL;
+
+        unlock(tu, target);
+
+        tu_unref(tu, "Hung up");
+        tu_unref(target, "Got hung up on");
+        break;
+    }
+    return 0;
 }
-#endif
+// #endif
 
 /*
  * "Chat" over a connection.
@@ -197,9 +391,9 @@ int tu_hangup(TU *tu) {
  * @return 0  If the chat was successfully sent, -1 if there is no call in progress
  * or some other error occurs.
  */
-#if 0
+// #if 0
 int tu_chat(TU *tu, char *msg) {
     // TO BE IMPLEMENTED
     abort();
 }
-#endif
+// #endif

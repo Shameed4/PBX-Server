@@ -5,18 +5,54 @@
 
 #include "pbx.h"
 #include "debug.h"
+#include "csapp.h"
+
+typedef struct pbx_node {
+    TU *tu;
+    int ext;
+    struct pbx_node *next;
+} PBX_NODE;
+
+typedef struct pbx {
+    PBX_NODE *head;
+    sem_t mutex, w;
+    int read_cnt;
+} PBX;
+
+
+static void add_reader() {
+    P(&pbx->mutex);
+    if (pbx->read_cnt == 0) {
+        P(&pbx->w);
+    }
+    pbx->read_cnt++;
+    V(&pbx->mutex);
+}
+
+static void remove_reader() {
+    P(&pbx->mutex);
+    pbx->read_cnt--;
+    if (pbx->read_cnt == 0) {
+        V(&pbx->w);
+    }
+    V(&pbx->mutex);
+}
 
 /*
  * Initialize a new PBX.
  *
  * @return the newly initialized PBX, or NULL if initialization fails.
  */
-#if 0
+// #if 0
 PBX *pbx_init() {
-    // TO BE IMPLEMENTED
-    abort();
+    pbx = calloc(1, sizeof(PBX));
+    if (pbx == NULL)
+        return NULL;
+    Sem_init(&pbx->mutex, 0, 1);
+    Sem_init(&pbx->w, 0, 1);
+    return pbx;
 }
-#endif
+// #endif
 
 /*
  * Shut down a pbx, shutting down all network connections, waiting for all server
@@ -28,12 +64,21 @@ PBX *pbx_init() {
  *
  * @param pbx  The PBX to be shut down.
  */
-#if 0
+// #if 0
 void pbx_shutdown(PBX *pbx) {
     // TO BE IMPLEMENTED
-    abort();
+    P(&pbx->w);
+    PBX_NODE *node = pbx->head;
+    while (node) {
+        PBX_NODE *next = node->next;
+        tu_unref(node->tu, "Shutting down PBX");
+        free(node);
+        node = next;
+    }
+    V(&pbx->w);
+    // free the pbx, shut down file descriptors
 }
-#endif
+// #endif
 
 /*
  * Register a telephone unit with a PBX at a specified extension number.
@@ -49,12 +94,24 @@ void pbx_shutdown(PBX *pbx) {
  * @param ext  The extension number on which the TU is to be registered.
  * @return 0 if registration succeeds, otherwise -1.
  */
-#if 0
+// #if 0
 int pbx_register(PBX *pbx, TU *tu, int ext) {
-    // TO BE IMPLEMENTED
-    abort();
+    P(&pbx->w);
+    PBX_NODE *node = malloc(sizeof(PBX_NODE));
+    if (node == NULL) {
+        V(&pbx->w);
+        return -1;
+    }
+    node->tu = tu;
+    node->ext = ext;
+    node->next = pbx->head;
+    pbx->head = node;
+    tu_set_extension(tu, ext);
+    tu_ref(tu, "Registering to PBX");
+    V(&pbx->w);
+    return 0;
 }
-#endif
+// #endif
 
 /*
  * Unregister a TU from a PBX.
@@ -68,12 +125,39 @@ int pbx_register(PBX *pbx, TU *tu, int ext) {
  * @param tu  The TU to be unregistered.
  * @return 0 if unregistration succeeds, otherwise -1.
  */
-#if 0
+// #if 0
 int pbx_unregister(PBX *pbx, TU *tu) {
-    // TO BE IMPLEMENTED
-    abort();
+    P(&pbx->w);
+    if (pbx->head == NULL) {
+        V(&pbx->w);
+        return -1;
+    }
+    
+    PBX_NODE *removed;
+    if (pbx->head->tu == tu) {
+        removed = pbx->head;
+        pbx->head = removed->next;
+        tu_unref(removed->tu, "Unregistered tu");
+        free(removed);
+        V(&pbx->w);
+        return 0;
+    }
+
+    PBX_NODE *curr = pbx->head;
+    while (curr->next != NULL && curr->next->tu != tu) {
+        curr = curr->next;
+    }
+    removed = curr->next;
+    if (removed == NULL) {
+        V(&pbx->w);
+        return -1;
+    }
+    curr->next = removed->next;
+    tu_unref(removed->tu, "Unregistered tu");
+    free(removed);
+    return 0;
 }
-#endif
+// #endif
 
 /*
  * Use the PBX to initiate a call from a specified TU to a specified extension.
@@ -83,9 +167,20 @@ int pbx_unregister(PBX *pbx, TU *tu) {
  * @param ext  The extension number to be called.
  * @return 0 if dialing succeeds, otherwise -1.
  */
-#if 0
+// #if 0
 int pbx_dial(PBX *pbx, TU *tu, int ext) {
-    // TO BE IMPLEMENTED
-    abort();
+    add_reader();
+
+    PBX_NODE *node = pbx->head;
+    while (node != NULL && node->ext != ext) {
+        node = node->next;
+    }
+    if (node == NULL) {
+        remove_reader();
+        return -1;
+    }
+    tu_dial(tu, node->tu);
+    remove_reader();
+    return 0;
 }
-#endif
+// #endif
