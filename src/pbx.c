@@ -67,16 +67,19 @@ PBX *pbx_init() {
 // #if 0
 void pbx_shutdown(PBX *pbx) {
     // TO BE IMPLEMENTED
+    debug("SHUTTING DOWN");
     P(&pbx->w);
     PBX_NODE *node = pbx->head;
     while (node) {
         PBX_NODE *next = node->next;
+        shutdown(tu_fileno(node->tu), SHUT_RDWR);
         tu_unref(node->tu, "Shutting down PBX");
         free(node);
         node = next;
     }
     V(&pbx->w);
     // free the pbx, shut down file descriptors
+    free(pbx);
 }
 // #endif
 

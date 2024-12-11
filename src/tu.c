@@ -20,12 +20,18 @@ typedef struct tu {
 
 // assumes that there is a lock 
 void print_state(TU *tu) {
-    if (tu->state == TU_ON_HOOK) {
+    switch (tu->state) {
+        case TU_ON_HOOK:
         dprintf(tu->fd, "ON HOOK %d\r\n", tu->ext);
-        debug("TU file descriptor: %d extension: %d", tu->fd, tu->ext);
-        return;
+        break;
+
+        case TU_CONNECTED:
+        dprintf(tu->fd, "CONNECTED %d\r\n", tu->peer->ext);
+        break;
+
+        default:
+        dprintf(tu->fd, "%s\r\n", tu_state_names[tu->state]);
     }
-    dprintf(tu->fd, "%s\r\n", tu_state_names[tu->state]);
 }
 
 /*
@@ -50,8 +56,8 @@ TU *tu_init(int fd) {
 
 // tu_ref, but it assumes there is already a lock on tu
 void tu_ref_nl(TU *tu, char *reason) {
-    debug("Referencing TU because %s", reason);
     tu->ref_count += 1;
+    debug("Refing because: %s. Ref count: %d", reason, tu->ref_count);
 }
 
 /*
@@ -82,7 +88,9 @@ void tu_unref(TU *tu, char *reason) {
     // TO BE IMPLEMENTED
     P(&tu->mutex);
     tu->ref_count -= 1;
+    debug("Unrefing because: %s. Ref count: %d", reason, tu->ref_count);
     if (tu->ref_count == 0) {
+        debug("Deleting tu");
         V(&tu->mutex);
         free(tu);
     }
@@ -403,6 +411,7 @@ int tu_chat(TU *tu, char *msg) {
     // TO BE IMPLEMENTED
     P(&tu->mutex);
     if (tu->state != TU_CONNECTED) {
+        print_state(tu);
         V(&tu->mutex);
         return -1;
     }
