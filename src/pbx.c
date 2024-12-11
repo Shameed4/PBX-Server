@@ -175,12 +175,8 @@ int pbx_dial(PBX *pbx, TU *tu, int ext) {
     while (node != NULL && node->ext != ext) {
         node = node->next;
     }
-    if (node == NULL) {
-        remove_reader();
-        return -1;
-    }
-    tu_dial(tu, node->tu);
+    int res = tu_dial(tu, node == NULL ? NULL : node->tu);
     remove_reader();
-    return 0;
+    return res;
 }
 // #endif

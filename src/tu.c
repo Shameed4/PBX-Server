@@ -22,9 +22,10 @@ typedef struct tu {
 void print_state(TU *tu) {
     if (tu->state == TU_ON_HOOK) {
         dprintf(tu->fd, "ON HOOK %d\r\n", tu->ext);
+        debug("TU file descriptor: %d extension: %d", tu->fd, tu->ext);
         return;
     }
-    dprintf(tu->fd, "%s\r\n", tu_state_names[tu->ext]);
+    dprintf(tu->fd, "%s\r\n", tu_state_names[tu->state]);
 }
 
 /*
@@ -42,6 +43,7 @@ TU *tu_init(int fd) {
         return NULL;
     }
     Sem_init(&tu->mutex, 0, 1);
+    tu->fd = fd;
     return tu;
 }
 // #endif
@@ -139,8 +141,11 @@ int tu_extension(TU *tu) {
 // #if 0
 int tu_set_extension(TU *tu, int ext) {
     // TO BE IMPLEMENTED
+    if (tu == NULL)
+        return -1;
     P(&tu->mutex);
     tu->ext = ext;
+    print_state(tu);
     V(&tu->mutex);
     return 0;
 }
@@ -170,13 +175,9 @@ void lock(TU *tu, TU *target) {
 }
 
 void unlock(TU *tu, TU *target) {
-    P(&tu->mutex);
+    debug("Before locking 2");
     int tu_fd = tu->fd;
-    V(&tu->mutex);
-
-    P(&target->mutex);
     int target_fd = target->fd;
-    V(&target->mutex);
     
     if (tu_fd == target_fd) {
         debug("WHAT - tu == target");
@@ -226,6 +227,8 @@ void unlock(TU *tu, TU *target) {
 int tu_dial(TU *tu, TU *target) {
     P(&tu->mutex);
     if (tu->state != TU_DIAL_TONE) {
+        debug("Cannot dial - not in DIAL TONE state");
+        print_state(tu);
         V(&tu->mutex);
         return 0;
     }
@@ -250,16 +253,22 @@ int tu_dial(TU *tu, TU *target) {
     else
         V(&target->mutex);
     
+    debug("About to lock tu and target");
     lock(tu, target);
-
+    debug("Successfully locked");
+ 
     tu->state = TU_RING_BACK;
     tu->peer = target;
     tu_ref_nl(tu, "Is the caller");
     target->state = TU_RINGING;
     target->peer = tu;
     tu_ref_nl(target, "Is being called");
+    print_state(tu);
+    print_state(target);
 
+    debug("About to unlock tu and target");
     unlock(tu, target);
+    debug("Successfully unlocked");
     return 0;
 }
 // #endif
@@ -285,10 +294,12 @@ int tu_dial(TU *tu, TU *target) {
 int tu_pickup(TU *tu) {
     // TO BE IMPLEMENTED
     P(&tu->mutex);
+    debug("State before pickup: %s", tu_state_names[tu->state]);
     switch (tu->state) {
         case TU_ON_HOOK:
         tu->state = TU_DIAL_TONE;
         print_state(tu);
+        debug("New state: %s", tu_state_names[tu->state]);
         V(&tu->mutex);
         break;
 
@@ -300,11 +311,15 @@ int tu_pickup(TU *tu) {
         tu->state = TU_CONNECTED;
         target->state = TU_CONNECTED;
 
+        print_state(tu);
+        print_state(target);
+
         unlock(tu, target);
 
         break;
 
         default:
+        print_state(tu);
         V(&tu->mutex);
     }
     return 0;
@@ -351,6 +366,8 @@ int tu_hangup(TU *tu) {
         else
             target->state = TU_DIAL_TONE;
         target->peer = NULL;
+        print_state(tu);
+        print_state(target);
 
         unlock(tu, target);
 
@@ -358,20 +375,10 @@ int tu_hangup(TU *tu) {
         tu_unref(target, "Got hung up on");
         break;
 
-        case TU_RING_BACK:
-        TU *target = tu->peer;
-        V(&tu->mutex);
-        lock(tu, target);
-        
+        default:
         tu->state = TU_ON_HOOK;
-        tu->peer = NULL;
-        target->state = TU_ON_HOOK;
-        target->peer = NULL;
-
-        unlock(tu, target);
-
-        tu_unref(tu, "Hung up");
-        tu_unref(target, "Got hung up on");
+        print_state(tu);
+        V(&tu->mutex);
         break;
     }
     return 0;
@@ -394,6 +401,14 @@ int tu_hangup(TU *tu) {
 // #if 0
 int tu_chat(TU *tu, char *msg) {
     // TO BE IMPLEMENTED
-    abort();
+    P(&tu->mutex);
+    if (tu->state != TU_CONNECTED) {
+        V(&tu->mutex);
+        return -1;
+    }
+    dprintf(tu->peer->fd, "CHAT %s\r\n", msg);
+    print_state(tu);
+    V(&tu->mutex);
+    return 0;
 }
 // #endif
