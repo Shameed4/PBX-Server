@@ -78,6 +78,8 @@ void pbx_shutdown(PBX *pbx) {
         node = next;
     }
     V(&pbx->w);
+    sem_destroy(&pbx->mutex);
+    sem_destroy(&pbx->w);
     // free the pbx, shut down file descriptors
     free(pbx);
 }

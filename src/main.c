@@ -7,10 +7,12 @@
 #include "debug.h"
 #include "main_helper.h"
 
+static int* connfdp;
 static void terminate(int status);
 
 static void terminate_helper() {
     debug("Running terminate_helper");
+    free(connfdp);
     terminate(EXIT_SUCCESS);
 }
 
@@ -62,7 +64,7 @@ int main(int argc, char* argv[]){
     }
 
     // adapted from Lee-LEC21-Concurrency.pdf Slide 41
-    int listenfd, *connfdp;
+    int listenfd;
     socklen_t clientlen;
     struct sockaddr_storage clientaddr;
     pthread_t tid;
@@ -74,7 +76,11 @@ int main(int argc, char* argv[]){
         clientlen = sizeof(struct sockaddr_storage);
         connfdp = Malloc(sizeof(int));
         *connfdp = Accept(listenfd, (SA *) &clientaddr, &clientlen);
-        pthread_create(&tid, NULL, pbx_client_service, connfdp);
+        if (pthread_create(&tid, NULL, pbx_client_service, connfdp) != 0) {
+            free(connfdp);
+            connfdp = NULL;
+        }
+        connfdp = NULL;
     }
     
 

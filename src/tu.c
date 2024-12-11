@@ -92,6 +92,8 @@ void tu_unref(TU *tu, char *reason) {
     if (tu->ref_count == 0) {
         debug("Deleting tu");
         V(&tu->mutex);
+        close(tu->fd);
+        sem_destroy(&tu->mutex);
         free(tu);
     }
     else {

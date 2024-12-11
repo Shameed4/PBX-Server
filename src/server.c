@@ -10,7 +10,7 @@
 #include "pbx.h"
 #include "server.h"
 
-#define BUFFER_BLOCK_LEN 100
+#define BUFFER_BLOCK_LEN 103
 
 /*
  * Thread function for the thread that handles interaction with a client TU.
@@ -63,6 +63,10 @@ void *pbx_client_service(void *arg) {
             }
             buffer = re_buffer;
         }
+        if (curr_read_len <= 0) {
+            free(buffer);
+            break;
+        }
         buffer[break_index] = '\0';
 
         if (!strcmp(buffer, "pickup")) {
@@ -88,9 +92,6 @@ void *pbx_client_service(void *arg) {
             debug("Invalid command");
         }
         free(buffer);
-        if (curr_read_len <= 0) {
-            break;
-        }
     }
     debug("Returning null");
     return NULL;
